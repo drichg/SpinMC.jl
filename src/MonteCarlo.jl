@@ -16,11 +16,14 @@ end
 
 mutable struct MonteCarlo{T<:Lattice,U<:AbstractRNG}
     lattice::T
-    
+
     beta::Float64
     thermalizationSweeps::Int
     measurementSweeps::Int
     measurementRate::Int
+
+    randomizeInitialConfiguration::Bool
+
     replicaExchangeRate::Int
     reportInterval::Int
     checkpointInterval::Int
@@ -33,21 +36,22 @@ mutable struct MonteCarlo{T<:Lattice,U<:AbstractRNG}
 end
 
 function MonteCarlo(
-    lattice::T, 
-    beta::Float64, 
-    thermalizationSweeps::Int, 
-    measurementSweeps::Int; 
-    measurementRate::Int = 1, 
-    replicaExchangeRate::Int = 10, 
-    reportInterval::Int = round(Int, 0.05 * (thermalizationSweeps + measurementSweeps)), 
-    checkpointInterval::Int = 3600, 
-    rng::U = copy(Random.GLOBAL_RNG), 
-    seed::UInt = rand(Random.RandomDevice(),UInt)
-    ) where T<:Lattice where U<:AbstractRNG
+    lattice::T,
+    beta::Float64,
+    thermalizationSweeps::Int,
+    measurementSweeps::Int;
+    measurementRate::Int=1,
+    randomizeInitialConfiguration::Bool=true,
+    replicaExchangeRate::Int=10,
+    reportInterval::Int=round(Int, 0.05 * (thermalizationSweeps + measurementSweeps)),
+    checkpointInterval::Int=3600,
+    rng::U=copy(Random.GLOBAL_RNG),
+    seed::UInt=rand(Random.RandomDevice(), UInt)
+) where T<:Lattice where U<:AbstractRNG
 
-    mc = MonteCarlo(deepcopy(lattice), beta, thermalizationSweeps, measurementSweeps, measurementRate, replicaExchangeRate, reportInterval, checkpointInterval, rng, seed, 0, Observables(lattice))
+    mc = MonteCarlo(deepcopy(lattice), beta, thermalizationSweeps, measurementSweeps, measurementRate, randomizeInitialConfiguration, replicaExchangeRate, reportInterval, checkpointInterval, rng, seed, 0, Observables(lattice))
     Random.seed!(mc.rng, mc.seed)
-    
+
     return mc
 end
 
@@ -62,7 +66,7 @@ function run!(mc::MonteCarlo{T}; outfile::Union{String,Nothing}=nothing) where T
         rank = MPI.Comm_rank(MPI.COMM_WORLD)
         if commSize > 1
             allBetas = zeros(commSize)
-            allBetas[rank + 1] = mc.beta
+            allBetas[rank+1] = mc.beta
             MPI.Allgather!(UBuffer(allBetas, 1), MPI.COMM_WORLD)
             enableMPI = true
             rank == 0 && @printf("MPI detected. Enabling replica exchanges across %d simulations.\n", commSize)
@@ -75,11 +79,13 @@ function run!(mc::MonteCarlo{T}; outfile::Union{String,Nothing}=nothing) where T
         enableMPI && (outfile *= "." * string(rank))
         isfile(outfile) && error("File ", outfile, " already exists. Terminating.")
     end
-    
+
     #init spin configuration
-    if mc.sweep == 0
+    if mc.sweep == 0 && mc.randomizeInitialConfiguration
         for i in 1:length(mc.lattice)
+
             setSpin!(mc.lattice, i, uniformOnSphere(mc.rng))
+
         end
     end
 
@@ -99,8 +105,12 @@ function run!(mc::MonteCarlo{T}; outfile::Union{String,Nothing}=nothing) where T
             #select random spin
             site = rand(mc.rng, 1:length(mc.lattice))
 
-            #propose new spin configuration
-            newSpinState = uniformOnSphere(mc.rng)
+            if mc.sweep < mc.thermalizationSweeps || mc.beta <= 0.6
+                newSpinState = uniformOnSphere(mc.rng)
+            else
+                newSpinState = rotate_update_fast(getSpin(mc.lattice, site), mc.beta, mc.rng)
+            end
+
             energyDifference = getEnergyDifference(mc.lattice, site, newSpinState)
 
             #check acceptance of new configuration
@@ -131,7 +141,7 @@ function run!(mc::MonteCarlo{T}; outfile::Union{String,Nothing}=nothing) where T
                 statistics.attemptedReplicaExchanges += 1
                 exchangeAccepted = false
                 if iseven(rank)
-                    p = exp(-(allBetas[rank + 1] - allBetas[partnerRank + 1]) * (partnerEnergy - energy))
+                    p = exp(-(allBetas[rank+1] - allBetas[partnerRank+1]) * (partnerEnergy - energy))
                     exchangeAccepted = (rand(mc.rng) < min(1.0, p)) ? true : false
                     MPISendBool(exchangeAccepted, partnerRank, MPI.COMM_WORLD)
                 else
@@ -171,10 +181,10 @@ function run!(mc::MonteCarlo{T}; outfile::Union{String,Nothing}=nothing) where T
             if enableMPI
                 replicaExchangeAcceptanceRate = 100.0 * statistics.acceptedReplicaExchanges / statistics.attemptedReplicaExchanges
                 allLocalAppectanceRate = zeros(commSize)
-                allLocalAppectanceRate[rank + 1] = localUpdateAcceptanceRate
+                allLocalAppectanceRate[rank+1] = localUpdateAcceptanceRate
                 MPI.Allgather!(UBuffer(allLocalAppectanceRate, 1), MPI.COMM_WORLD)
                 allReplicaExchangeAcceptanceRate = zeros(commSize)
-                allReplicaExchangeAcceptanceRate[rank + 1] = replicaExchangeAcceptanceRate
+                allReplicaExchangeAcceptanceRate[rank+1] = replicaExchangeAcceptanceRate
                 MPI.Allgather!(UBuffer(allReplicaExchangeAcceptanceRate, 1), MPI.COMM_WORLD)
             end
 
@@ -182,11 +192,11 @@ function run!(mc::MonteCarlo{T}; outfile::Union{String,Nothing}=nothing) where T
             if rank == 0
                 str = ""
                 str *= @sprintf("Sweep %d / %d (%.1f%%)", mc.sweep, totalSweeps, progress)
-                str *= @sprintf("\t\tETA : %s\n", Dates.format(Dates.now() + Dates.Second(round(Int64,eta)), "dd u yyyy HH:MM:SS"))
+                str *= @sprintf("\t\tETA : %s\n", Dates.format(Dates.now() + Dates.Second(round(Int64, eta)), "dd u yyyy HH:MM:SS"))
                 str *= @sprintf("\t\tthermalized : %s\n", thermalized)
                 str *= @sprintf("\t\tsweep rate : %.1f sweeps/s\n", sweeprate)
                 str *= @sprintf("\t\tsweep duration : %.3f ms\n", sweeptime * 1000)
-                
+
                 if enableMPI
                     for n in 1:commSize
                         str *= @sprintf("\t\tsimulation %d update acceptance rate: %.2f%%\n", n - 1, allLocalAppectanceRate[n])
@@ -220,8 +230,11 @@ function run!(mc::MonteCarlo{T}; outfile::Union{String,Nothing}=nothing) where T
         writeMonteCarlo(outfile, mc)
         rank == 0 && @printf("Checkpoint written on %s.\n", Dates.format(Dates.now(), "dd u yyyy HH:MM:SS"))
     end
-    
+
     #return
     rank == 0 && @printf("Simulation finished on %s.\n", Dates.format(Dates.now(), "dd u yyyy HH:MM:SS"))
-    return nothing    
+    return nothing
 end
+
+
+

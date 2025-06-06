@@ -1,11 +1,79 @@
 using Random
 using LinearAlgebra
 
-function uniformOnSphere(rng = Random.GLOBAL_RNG)
+
+
+function uniformOnSphere(rng=Random.GLOBAL_RNG)
     phi = 2.0 * pi * rand(rng)
-    z = 2.0 * rand(rng) - 1.0;
+    z = 2.0 * rand(rng) - 1.0
     r = sqrt(1.0 - z * z)
     return (r * cos(phi), r * sin(phi), z)
+end
+function Ising_spin(rng=Random.GLOBAL_RNG)
+    z = sign(rand(rng) - 0.5)
+
+    return (0.0, 0.0, z)
+end
+R(θ, ϕ) = [cos(θ)*cos(ϕ) -sin(ϕ) sin(θ)*cos(ϕ);
+    cos(θ)*sin(ϕ) cos(ϕ) sin(θ)*sin(ϕ);
+    -sin(θ) 0 cos(θ)]
+function rotate_update(s, beta, rng=Random.GLOBAL_RNG)
+    θ = acos(s[3])
+    ϕ = atan(s[2], s[1])
+    if ϕ < 0
+        ϕ += 2π
+    end
+    Δθ = acos(1 - 1.0 / beta)
+    ϕ_new = rand(rng) * 2π
+    θ_new = Δθ * rand(rng)
+    si_new = R(θ, ϕ) * [sin(θ_new) * cos(ϕ_new),
+        sin(θ_new) * sin(ϕ_new),
+        cos(θ_new)]
+    return (si_new[1], si_new[2], si_new[3])
+end
+function rotate_update_fast(s::NTuple{3,Float64}, beta, rng=Random.GLOBAL_RNG)
+    z = s[3]
+    θ = acos(z)
+    ϕ = atan(s[2], s[1])
+    ϕ += (ϕ < 0) * 2π
+
+    Δθ = acos(1 - 1.0 / beta)
+    ϕ_new = 2π * rand(rng)
+    θ_new = Δθ * rand(rng)
+
+    # Original vector in local frame
+    vx = sin(θ_new) * cos(ϕ_new)
+    vy = sin(θ_new) * sin(ϕ_new)
+    vz = cos(θ_new)
+
+    # Directly apply rotated form
+    cosθ = cos(θ)
+    sinθ = sin(θ)
+    cosϕ = cos(ϕ)
+    sinϕ = sin(ϕ)
+
+    x = cosθ * cosϕ * vx - sinϕ * vy + sinθ * cosϕ * vz
+    y = cosθ * sinϕ * vx + cosϕ * vy + sinθ * sinϕ * vz
+    z = -sinθ * vx + cosθ * vz
+
+    return (x, y, z)
+end
+function over_relaxation(lattice, site::Int)
+    h = (0, 0, 0)
+    for (interaction, s) in zip(lattice.interactionMatrices[site], lattice.interactionSites[site])
+        interactionSpin = getSpin(lattice, s)
+        # Accumulate the interaction contributions
+        h = h .+ (interaction.m11 * interactionSpin[1], interaction.m22 * interactionSpin[2], interaction.m33 * interactionSpin[3])
+    end
+    local_field = getInteractionField(lattice, site)
+    h = h .+ local_field
+    if norm(h) < 1e-10
+        spin_new = uniformOnSphere()
+    else
+        spin_old = getSpin(lattice, site)
+        spin_new = 2 .* h .* dot(spin_old, h) / norm(h)^2 - spin_old
+    end
+    return spin_new
 end
 
 function exchangeEnergy(s1, M::InteractionMatrix, s2)::Float64
@@ -75,7 +143,7 @@ function getCorrelation(lattice::Lattice{D,N}) where {D,N}
     for i in 1:length(lattice.unitcell.basis)
         s0 = getSpin(lattice, i)
         for j in 1:length(lattice)
-            corr[j,i] = dot(s0, getSpin(lattice, j))
+            corr[j, i] = dot(s0, getSpin(lattice, j))
         end
     end
     return corr
