@@ -125,9 +125,9 @@ function run!(mc::MonteCarlo{T}; outfile::Union{String,Nothing}=nothing) where T
         end
         #perform over-relaxation
         if mod(mc.sweep, mc.overRelaxationRate) == 0
-            if mod(mc.sweep, mc.reportInterval) == 0
-                @info("Over-relaxation at sweep $(mc.sweep)")
-            end
+            # if mod(mc.sweep, mc.reportInterval) == 0
+            #     @info("Over-relaxation at sweep $(mc.sweep)")
+            # end
 
             for site in 1:length(mc.lattice)
 
@@ -140,8 +140,8 @@ function run!(mc::MonteCarlo{T}; outfile::Union{String,Nothing}=nothing) where T
                 setSpin!(mc.lattice, site, newSpinState)
 
                 energyDifference = getEnergyDifference(mc.lattice, site, newSpinState)
-                if energyDifference > 1e-10
-                    # @warn("Over-relaxation at site $site did not yield zero energy difference. Energy difference: $energyDifference")
+                if abs(energyDifference) > 1e-10
+
                     @error("Over-relaxation at site $site did not yield zero energy difference. Energy difference: $energyDifference")
                 end
             end
