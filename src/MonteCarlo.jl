@@ -21,7 +21,7 @@ mutable struct MonteCarlo{T<:Lattice,U<:AbstractRNG}
     thermalizationSweeps::Int
     measurementSweeps::Int
     measurementRate::Int
-
+    overRelaxationRate::Int
     randomizeInitialConfiguration::Bool
 
     replicaExchangeRate::Int
@@ -41,6 +41,7 @@ function MonteCarlo(
     thermalizationSweeps::Int,
     measurementSweeps::Int;
     measurementRate::Int=1,
+    overRelaxationRate::Int=1,
     randomizeInitialConfiguration::Bool=true,
     replicaExchangeRate::Int=10,
     reportInterval::Int=round(Int, 0.05 * (thermalizationSweeps + measurementSweeps)),
@@ -49,7 +50,7 @@ function MonteCarlo(
     seed::UInt=rand(Random.RandomDevice(), UInt)
 ) where T<:Lattice where U<:AbstractRNG
 
-    mc = MonteCarlo(deepcopy(lattice), beta, thermalizationSweeps, measurementSweeps, measurementRate, randomizeInitialConfiguration, replicaExchangeRate, reportInterval, checkpointInterval, rng, seed, 0, Observables(lattice))
+    mc = MonteCarlo(deepcopy(lattice), beta, thermalizationSweeps, measurementSweeps, measurementRate, overRelaxationRate, randomizeInitialConfiguration, replicaExchangeRate, reportInterval, checkpointInterval, rng, seed, 0, Observables(lattice))
     Random.seed!(mc.rng, mc.seed)
 
     return mc
@@ -122,6 +123,33 @@ function run!(mc::MonteCarlo{T}; outfile::Union{String,Nothing}=nothing) where T
                 statistics.acceptedLocalUpdates += 1
             end
         end
+        #perform over-relaxation
+        if mod(mc.sweep, mc.overRelaxationRate) == 0
+            if mod(mc.sweep, mc.reportInterval) == 0
+                @info("Over-relaxation at sweep $(mc.sweep)")
+            end
+
+            for site in 1:length(mc.lattice)
+
+                newSpinState = over_relaxation(mc.lattice, site)
+                spinold = getSpin(mc.lattice, site)
+                if norm(newSpinState .- spinold) < 1e-10
+                    @warn("Over-relaxation at site $site did not change the spin state. Spin state: $spinold")
+
+                end
+                setSpin!(mc.lattice, site, newSpinState)
+
+                energyDifference = getEnergyDifference(mc.lattice, site, newSpinState)
+                if energyDifference > 1e-10
+                    # @warn("Over-relaxation at site $site did not yield zero energy difference. Energy difference: $energyDifference")
+                    @error("Over-relaxation at site $site did not yield zero energy difference. Energy difference: $energyDifference")
+                end
+            end
+
+        end
+
+
+
         statistics.sweeps += 1
 
         #perform replica exchange

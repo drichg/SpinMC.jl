@@ -68,10 +68,10 @@ function over_relaxation(lattice, site::Int)
     local_field = getInteractionField(lattice, site)
     h = h .+ local_field
     if norm(h) < 1e-10
-        spin_new = uniformOnSphere()
+        spin_new = getSpin(lattice, site)  # No change if local field is zero
     else
         spin_old = getSpin(lattice, site)
-        spin_new = 2 .* h .* dot(spin_old, h) / norm(h)^2 - spin_old
+        spin_new = 2 .* h .* dot(spin_old, h) ./ norm(h)^2 .- spin_old
     end
     return spin_new
 end
