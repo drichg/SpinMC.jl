@@ -264,5 +264,25 @@ function run!(mc::MonteCarlo{T}; outfile::Union{String,Nothing}=nothing) where T
     return nothing
 end
 
+function anneal!(mc::MonteCarlo{T}, betas::Vector{Float64};
+    outfile::Union{String,Nothing}=nothing, procid=nothing,
+    randomizeInitialConfiguration::Bool=true) where {T<:Lattice}
 
+    mc.randomizeInitialConfiguration = randomizeInitialConfiguration
+
+    for (i, beta) in enumerate(betas)
+        @info "Running simulation $(i)/$(length(betas)) at β = $beta"
+
+        mc.beta = beta
+        mc.sweep = 0
+        mc.observables = deepcopy(MonteCarlo(mc.lattice, mc.beta, 0, 0).observables)
+        out = isnothing(outfile) ? nothing :
+              replace(outfile, r"\.h5$" => "_beta$(beta).h5") * (isnothing(procid) ? "" : ".$(procid)")
+
+        run!(mc, outfile=out)
+
+
+        mc.randomizeInitialConfiguration = false
+    end
+end
 
