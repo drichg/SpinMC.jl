@@ -6,10 +6,12 @@ mutable struct Observables
     magnetization::LogBinner{Float64,32,BinningAnalysis.Variance{Float64}}
     magnetizationVector::LogBinner{Vector{Float64},32,BinningAnalysis.Variance{Vector{Float64}}}
     correlation::LogBinner{Array{Float64,2},32,BinningAnalysis.Variance{Array{Float64,2}}}
+    monopoleOrder::LogBinner{Float64,32,BinningAnalysis.Variance{Float64}}
+
 end
 
 function Observables(lattice::T) where T<:Lattice
-    return Observables(ErrorPropagator(Float64), LogBinner(Float64), LogBinner(zeros(Float64, 3)), LogBinner(zeros(Float64, lattice.length, length(lattice.unitcell.basis))))
+    return Observables(ErrorPropagator(Float64), LogBinner(Float64), LogBinner(zeros(Float64, 3)), LogBinner(zeros(Float64, lattice.length, length(lattice.unitcell.basis))), LogBinner(Float64))
     # return Observables(LogBinner(Float64), LogBinner(Float64), LogBinner(zeros(Float64, 3)), LogBinner(zeros(Float64, lattice.length, length(lattice.unitcell.basis))))
 end
 
@@ -24,4 +26,28 @@ function performMeasurements!(observables::Observables, lattice::T, energy::Floa
 
     #measure spin correlations
     push!(observables.correlation, getCorrelation(lattice))
+    #measure monopole order
+    push!(observables.monopoleOrder, monopole_order(lattice))
+end
+function monopole_order(lattice::T) where T<:Lattice
+    # Calculate the monopole order parameter for Shastry-Sutherland model
+    bh = 0.0
+    bv = 0.0
+
+    for i in 0:2(size(lattice)[1])-1
+        for j in 0:2(size(lattice)[2])-1
+            x1 = getSiteIndex(lattice, (i, j))
+            x2 = getSiteIndex(lattice, (mod(i + 1, 2 * lattice.size[1]), j))
+            x3 = getSiteIndex(lattice, (i, mod(j + 1, 2 * lattice.size[2])))
+
+            s0 = getSpin(lattice, x1)
+            sh = getSpin(lattice, x2)
+            sv = getSpin(lattice, x3)
+
+            bh += (-1)^i * dot(s0, sh)
+            bv += (-1)^j * dot(s0, sv)
+        end
+    end
+
+    return (bh - bv) / length(lattice)
 end

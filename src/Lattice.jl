@@ -1,5 +1,5 @@
 mutable struct Lattice{D,N}
-    size::NTuple{D, Int} #linear extent of the lattice in number of unit cells
+    size::NTuple{D,Int} #linear extent of the lattice in number of unit cells
     length::Int #Number of sites N_sites
     unitcell::UnitCell{D}
     sitePositions::Vector{NTuple{D,Float64}}
@@ -10,7 +10,7 @@ mutable struct Lattice{D,N}
     interactionMatrices::Vector{NTuple{N,InteractionMatrix}} #list of length N_sites, for every site contains all interaction matrices
     interactionOnsite::Vector{InteractionMatrix} #list of length N_sites, for every site contains the local onsite interaction matrix
     interactionField::Vector{NTuple{3,Float64}} #list of length N_sites, for every site contains the local field
-    Lattice(D,N) = new{D,N}()
+    Lattice(D, N) = new{D,N}()
 end
 
 function Lattice(uc::UnitCell{D}, L::NTuple{D,Int}) where D
@@ -18,11 +18,11 @@ function Lattice(uc::UnitCell{D}, L::NTuple{D,Int}) where D
     ##For every basis site b, generate list of sites which b interacts with and store the corresponding interaction sites and matrices. 
     ##Interaction sites are specified by the target site's basis id, b_target, and the offset in units of primitive lattice vectors. 
     ##If b has multiple interactions defined with the same target site, eliminate those duplicates by summing up the interaction matrices. 
-    interactionTargetSites = [ Vector{Tuple{Int,NTuple{D,Int},Matrix{Float64}}}(undef,0) for i in 1:length(uc.basis) ] #tuples of (b_target, offset, M)
+    interactionTargetSites = [Vector{Tuple{Int,NTuple{D,Int},Matrix{Float64}}}(undef, 0) for i in 1:length(uc.basis)] #tuples of (b_target, offset, M)
     for x in uc.interactions
         b1, b2, offset, M = x
         b1 == b2 && offset .% L == Tuple(zeros(D)) && error("Interaction cannot be local. Use setInteractionOnsite!() instead.")
-        
+
         #locate existing coupling to target site and add interaction matrix
         for i in 1:length(interactionTargetSites[b1])
             if interactionTargetSites[b1][i][1] == b2 && interactionTargetSites[b1][i][2] == offset
@@ -36,26 +36,26 @@ function Lattice(uc::UnitCell{D}, L::NTuple{D,Int}) where D
 
         #locate existing coupling from target site and add interaction matrix
         for i in 1:length(interactionTargetSites[b2])
-            if interactionTargetSites[b2][i][1] == b1 && interactionTargetSites[b2][i][2] == (x->-x).(offset)
+            if interactionTargetSites[b2][i][1] == b1 && interactionTargetSites[b2][i][2] == (x -> -x).(offset)
                 interactionTargetSites[b2][i] = (interactionTargetSites[b2][i][1], interactionTargetSites[b2][i][2], interactionTargetSites[b2][i][3] + transpose(M))
                 @goto endb2
             end
         end
         #if coupling does not exist yet, push new entry
-        push!(interactionTargetSites[b2], (b1, (x->-x).(offset), transpose(M)))
+        push!(interactionTargetSites[b2], (b1, (x -> -x).(offset), transpose(M)))
         @label endb2
     end
-    Ninteractions = findmax([ length(interactionTargetSites[i]) for i in 1:length(uc.basis) ])[1]
+    Ninteractions = findmax([length(interactionTargetSites[i]) for i in 1:length(uc.basis)])[1]
 
     #create lattice struct
-    lattice = Lattice(D,Ninteractions)
+    lattice = Lattice(D, Ninteractions)
     lattice.size = L
     lattice.length = prod(L) * length(uc.basis)
     lattice.unitcell = uc
 
     #generate linear representation of lattice sites to assign integer site IDs
     ##Enumeration sequence is (a1, a2, ..., b) in row-major fashion
-    sites = Vector{NTuple{D+1,Int}}(undef, lattice.length)
+    sites = Vector{NTuple{D + 1,Int}}(undef, lattice.length)
     function nextSite(site)
         next = collect(site)
         next[D+1] += 1
@@ -66,12 +66,12 @@ function Lattice(uc::UnitCell{D}, L::NTuple{D,Int}) where D
         for d in reverse(1:D)
             if next[d] >= L[d]
                 next[d] = 0
-                d-1 > 0 && (next[d-1] += 1)
+                d - 1 > 0 && (next[d-1] += 1)
             end
         end
         return Tuple(next)
     end
-    sites[1] = tuple(zeros(Int,D)..., 1)
+    sites[1] = tuple(zeros(Int, D)..., 1)
     for i in 2:length(sites)
         sites[i] = nextSite(sites[i-1])
     end
@@ -87,18 +87,22 @@ function Lattice(uc::UnitCell{D}, L::NTuple{D,Int}) where D
     lattice.spins = Array{Float64,2}(undef, 3, length(sites))
 
     #write interactions to lattice
-    lattice.interactionSites = repeat([ NTuple{Ninteractions,Int}(ones(Int,Ninteractions)) ], lattice.length)
-    lattice.interactionMatrices = repeat([ NTuple{Ninteractions,InteractionMatrix}(repeat([InteractionMatrix()],Ninteractions)) ], lattice.length)
+    lattice.interactionSites = repeat([NTuple{Ninteractions,Int}(ones(Int, Ninteractions))], lattice.length)
+    lattice.interactionMatrices = repeat([NTuple{Ninteractions,InteractionMatrix}(repeat([InteractionMatrix()], Ninteractions))], lattice.length)
     lattice.interactionOnsite = repeat([InteractionMatrix()], lattice.length)
-    lattice.interactionField = repeat([(0.0,0.0,0.0)], lattice.length)
+    lattice.interactionField = repeat([(0.0, 0.0, 0.0)], lattice.length)
 
     function applyPBC(n, L)
-        while n < 0; n += L end
-        while n >= L; n -= L end
+        while n < 0
+            n += L
+        end
+        while n >= L
+            n -= L
+        end
         return n
     end
     function siteIndexFromParametrization(site)
-       return findfirst(isequal(site), sites) 
+        return findfirst(isequal(site), sites)
     end
 
     for i in 1:length(sites)
@@ -142,13 +146,13 @@ function Base.length(lattice::Lattice{D,N}) where {D,N}
 end
 
 function getSpin(lattice::Lattice{D,N}, site::Int) where {D,N}
-    return (lattice.spins[1,site], lattice.spins[2,site], lattice.spins[3,site])
+    return (lattice.spins[1, site], lattice.spins[2, site], lattice.spins[3, site])
 end
 
 function setSpin!(lattice::Lattice{D,N}, site::Int, newState::Tuple{Float64,Float64,Float64}) where {D,N}
-    lattice.spins[1,site] = newState[1]
-    lattice.spins[2,site] = newState[2]
-    lattice.spins[3,site] = newState[3]
+    lattice.spins[1, site] = newState[1]
+    lattice.spins[2, site] = newState[2]
+    lattice.spins[3, site] = newState[3]
 end
 
 function getSitePosition(lattice::Lattice{D,N}, site::Int)::NTuple{D,Float64} where {D,N}
@@ -169,4 +173,10 @@ end
 
 function getInteractionField(lattice::Lattice{D,N}, site::Int)::NTuple{3,Float64} where {D,N}
     return lattice.interactionField[site]
+end
+
+function getSiteIndex(lattice::Lattice{D,N}, pos::NTuple{D,Number})::Int where {D,N}
+    idx = findfirst(==(pos), lattice.sitePositions)
+    idx === nothing && error("No site found at position $pos.")
+    return idx
 end

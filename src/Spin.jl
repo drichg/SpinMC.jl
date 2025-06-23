@@ -148,3 +148,4 @@ function getCorrelation(lattice::Lattice{D,N}) where {D,N}
     end
     return corr
 end
+
