@@ -3,7 +3,7 @@ mutable struct Lattice{D,N}
     length::Int #Number of sites N_sites
     unitcell::UnitCell{D}
     sitePositions::Vector{NTuple{D,Float64}}
-
+    positionMap::Dict{NTuple{D,Float64},Int}
     spins::Matrix{Float64} #3*N_sites matrix containing the spin configuration
 
     interactionSites::Vector{NTuple{N,Int}} #list of length N_sites, for every site contains all interacting sites
@@ -92,6 +92,13 @@ function Lattice(uc::UnitCell{D}, L::NTuple{D,Int}) where D
     lattice.interactionOnsite = repeat([InteractionMatrix()], lattice.length)
     lattice.interactionField = repeat([(0.0, 0.0, 0.0)], lattice.length)
 
+    #add position map
+    positionMap = Dict{NTuple{D,Float64},Int}()
+    for (i, pos) in enumerate(lattice.sitePositions)
+        positionMap[pos] = i
+    end
+    lattice.positionMap = positionMap
+
     function applyPBC(n, L)
         while n < 0
             n += L
@@ -175,8 +182,15 @@ function getInteractionField(lattice::Lattice{D,N}, site::Int)::NTuple{3,Float64
     return lattice.interactionField[site]
 end
 
-function getSiteIndex(lattice::Lattice{D,N}, pos::NTuple{D,Number})::Int where {D,N}
-    idx = findfirst(==(pos), lattice.sitePositions)
+# function getSiteIndex(lattice::Lattice{D,N}, pos::NTuple{D,Number})::Int where {D,N}
+#     idx = findfirst(==(pos), lattice.sitePositions)
+#     idx === nothing && error("No site found at position $pos.")
+#     return idx
+# end
+function getSiteIndex(lattice::Lattice{D,N}, pos::NTuple{D,Float64})::Int where {D,N}
+    idx = get(lattice.positionMap, pos, nothing)
+
     idx === nothing && error("No site found at position $pos.")
     return idx
 end
+
